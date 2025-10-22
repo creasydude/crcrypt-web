@@ -1,0 +1,162 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'; connect-src 'self'; worker-src 'self'">
+  <meta name="color-scheme" content="light dark">
+  <title>CRCYPT - Offline, zero-persistence AES‑GCM 256 encryption/decryption</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="app-header" role="banner">
+    <div class="header-row">
+      <div class="brand" aria-label="CRCRYPT brand">
+        <svg class="logo" viewBox="0 0 24 24" width="28" height="28" aria-hidden="true">
+          <path fill="currentColor" d="M12 2a4 4 0 00-4 4v3H7a2 2 0 00-2 2v8a2 2 0 002 2h10a2 2 0 002-2v-8a2 2 0 00-2-2h-1V6a4 4 0 00-4-4zm-2 7V6a2 2 0 114 0v3h-4zm2 5a2 2 0 110 4 2 2 0 010-4z"/>
+        </svg>
+        <span class="brand-name">CRCRYPT</span>
+      </div>
+      <div class="toolbar" aria-label="Quick settings">
+        <button id="settingsTrigger" class="icon-btn small" aria-haspopup="dialog" aria-controls="settingsModal" aria-expanded="false" title="Settings">
+          <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
+            <path fill="currentColor" d="M12 2a1 1 0 011 1v1.06a7.97 7.97 0 012.53.97l.75-.75a1 1 0 011.41 0l1.41 1.41a1 1 0 010 1.41l-.75.75c.45.81.77 1.69.97 2.62H21a1 1 0 011 1v2a1 1 0 01-1 1h-1.06a7.97 7.97 0 01-.97 2.53l.75.75a1 1 0 010 1.41l-1.41 1.41a1 1 0 01-1.41 0l-.75-.75a7.97 7.97 0 01-2.53.97V21a1 1 0 01-1 1h-2a1 1 0 01-1-1v-1.06a7.97 7.97 0 01-2.53-.97l-.75.75a1 1 0 01-1.41 0L4.1 17.6a1 1 0 010-1.41l.75-.75a7.97 7.97 0 01-.97-2.53H3a1 1 0 01-1-1v-2a1 1 0 011-1h1.06a7.97 7.97 0 01.97-2.53l-.75-.75a1 1 0 010-1.41L5.69 4.1a1 1 0 011.41 0l.75.75c.81-.45 1.69-.77 2.53-.97V3a1 1 0 011-1h2zM12 8a4 4 0 100 8 4 4 0 000-8z"/>
+          </svg>
+        </button>
+      </div>
+    </div>
+    <p class="subtitle" aria-live="polite">Offline, zero-persistence AES‑GCM 256 encryption/decryption. No data is saved or sent anywhere.</p>
+
+    <!-- Popovers moved inside header toolbar -->
+  </header>
+  <main class="app-main" role="main">
+    <section class="mode-switch" aria-label="Mode">
+      <div role="tablist" aria-label="Encrypt or Decrypt">
+        <button id="tabEncrypt" role="tab" aria-selected="true" class="tab">Encrypt</button>
+        <button id="tabDecrypt" role="tab" aria-selected="false" class="tab" tabindex="-1">Decrypt</button>
+      </div>
+    </section>
+
+    <section id="encryptPanel" role="tabpanel" aria-labelledby="tabEncrypt">
+      <form id="encryptForm" autocomplete="off" autocapitalize="off" spellcheck="false" novalidate>
+        <label for="plaintextInput">Plaintext</label>
+        <textarea id="plaintextInput" rows="6" placeholder="Enter text to encrypt" required></textarea>
+
+        <div class="passwords">
+          <label for="passwordInput">Password</label>
+          <input id="passwordInput" type="password" inputmode="text" autocomplete="off" autocapitalize="off" spellcheck="false" required aria-describedby="passwordHelp">
+          <small id="passwordHelp" class="help">Use 12–16 chars with upper/lowercase, numbers, and symbols.</small>
+
+          <label for="passwordConfirmInput">Confirm password</label>
+          <input id="passwordConfirmInput" type="password" inputmode="text" autocomplete="off" autocapitalize="off" spellcheck="false" required>
+
+          <div class="strength" aria-live="polite" aria-label="Password strength">
+            <div id="strengthBar" class="strength-bar"></div>
+            <span id="strengthLabel" class="strength-label">Strength: —</span>
+          </div>
+        </div>
+
+        <details id="advSettings" class="advanced">
+          <summary>Advanced Settings</summary>
+          <div class="grid">
+            <label for="advSaltLen">Salt length (bytes)</label>
+            <input id="advSaltLen" type="number" min="16" max="64" step="1" value="32" aria-describedby="advSaltHelp">
+            <small id="advSaltHelp" class="help">Default 32. Range 16–64.</small>
+
+            <label for="advIvLen">IV length (bytes)</label>
+            <input id="advIvLen" type="number" min="12" max="12" step="1" value="12" aria-describedby="advIvHelp">
+            <small id="advIvHelp" class="help">AES-GCM requires 12-byte IV.</small>
+
+            <label for="advIterations">PBKDF2 iterations</label>
+            <input id="advIterations" type="number" min="100000" max="1000000" step="1000" value="310000" aria-describedby="advIterHelp">
+            <small id="advIterHelp" class="help">Default 310k. Higher is slower, more secure.</small>
+
+            <label for="advKeyLen">Key length (bytes)</label>
+            <input id="advKeyLen" type="number" min="32" max="32" step="1" value="32" aria-describedby="advKeyHelp">
+            <small id="advKeyHelp" class="help">AES-256-GCM requires 32-byte key.</small>
+          </div>
+        </details>
+
+        <div class="actions">
+          <button id="encryptBtn" type="submit" class="primary">Encrypt</button>
+        </div>
+      </form>
+
+      <div class="output-group">
+        <label for="cipherOutput">Encrypted output (salt:iv:ciphertext:tag)</label>
+        <textarea id="cipherOutput" rows="4" readonly></textarea>
+        <div class="actions">
+          <button id="copyCipherBtn" type="button">Copy</button>
+        </div>
+      </div>
+    </section>
+
+    <section id="decryptPanel" role="tabpanel" aria-labelledby="tabDecrypt" hidden>
+      <form id="decryptForm" autocomplete="off" autocapitalize="off" spellcheck="false" novalidate>
+        <label for="cipherInput">Encrypted input (salt:iv:ciphertext:tag)</label>
+        <textarea id="cipherInput" rows="6" placeholder="Enter encrypted text" required></textarea>
+
+        <label for="decryptPasswordInput">Password</label>
+        <input id="decryptPasswordInput" type="password" inputmode="text" autocomplete="off" autocapitalize="off" spellcheck="false" required>
+
+        <div class="actions">
+          <button id="decryptBtn" type="submit" class="primary">Decrypt</button>
+        </div>
+      </form>
+
+      <div class="output-group">
+        <label for="plainOutput">Decrypted plaintext</label>
+        <textarea id="plainOutput" rows="4" readonly></textarea>
+        <div class="actions">
+          <button id="copyPlainBtn" type="button">Copy</button>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="app-footer" role="contentinfo">
+    <p class="notice" role="status" aria-live="polite">No data is saved or transmitted. Clipboard contents may be visible to other apps. Use Clear All to wipe memory and fields.</p>
+    <div class="footer-actions">
+      <a href="https://github.com/creasydude/crcrypt-web" target="_blank" rel="noopener noreferrer" class="icon-btn" aria-label="GitHub">
+        <svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true" class="icon">
+          <path fill="currentColor" d="M12 .5C5.73 .5 .5 5.73 .5 12.02c0 5.1 3.29 9.42 7.86 10.94.58.11.79-.25.79-.56 0-.28-.01-1.02-.02-2.01-3.2.7-3.88-1.54-3.88-1.54-.53-1.35-1.3-1.71-1.3-1.71-1.06-.72.08-.7.08-.7 1.17.08 1.79 1.2 1.79 1.2 1.04 1.78 2.73 1.26 3.4.96.11-.76.41-1.26.75-1.55-2.55-.29-5.24-1.28-5.24-5.7 0-1.26.45-2.28 1.19-3.08-.12-.29-.52-1.47.11-3.06 0 0 .97-.31 3.18 1.18.92-.26 1.9-.39 2.88-.39s1.96.13 2.88.39c2.21-1.49 3.18-1.18 3.18-1.18.63 1.59.23 2.77.11 3.06.74.8 1.19 1.82 1.19 3.08 0 4.43-2.69 5.4-5.25 5.68.42.36.8 1.07.8 2.16 0 1.56-.02 2.82-.02 3.2 0 .31.21.68.8.56C20.21 21.44 23.5 17.12 23.5 12.02 23.5 5.73 18.27 .5 12 .5z"/>
+        </svg>
+      </a>
+      <button id="clearBtn" type="button" class="danger">Clear All</button>
+    </div>
+  </footer>
+
+  <!-- Removed floating icon triggers to prevent footer overlap; toolbar popovers are used -->
+
+  <!-- Settings modal -->
+  <div id="settingsModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="settingsTitle" hidden>
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2 id="settingsTitle">Settings</h2>
+        <button id="settingsClose" class="icon-btn small" aria-label="Close">
+          <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
+            <path fill="currentColor" d="M18.3 5.71L12 12.01l-6.3-6.3-1.4 1.41 6.3 6.29-6.3 6.3 1.4 1.41 6.3-6.3 6.3 6.3 1.41-1.41-6.3-6.3 6.3-6.29z"/>
+          </svg>
+        </button>
+      </div>
+      <div class="modal-body">
+        <fieldset class="theme-toggle">
+          <legend>Theme</legend>
+          <label><input type="radio" name="theme" value="system" checked> System</label>
+          <label><input type="radio" name="theme" value="light"> Light</label>
+          <label><input type="radio" name="theme" value="dark"> Dark</label>
+        </fieldset>
+        <fieldset class="font-size">
+          <legend>Font size</legend>
+          <label><input type="radio" name="fontScale" value="small"> Small</label>
+          <label><input type="radio" name="fontScale" value="medium" checked> Medium</label>
+          <label><input type="radio" name="fontScale" value="large"> Large</label>
+        </fieldset>
+      </div>
+    </div>
+  </div>
+
+  <script type="module" src="src/ui.js"></script>
+</body>
+</html>

@@ -1,0 +1,35 @@
+# OS/Editor artifacts
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Environment secrets (none used now, future-proof)
+.env
+.env.local
+.env.*.local
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Node dependencies (not used; safe to ignore if added later)
+node_modules/
+
+# Build outputs (future-proof)
+dist/
+build/
+
+# Caches and temp
+.cache/
+.tmp/
+
+# Test coverage
+coverage/
+
+# Cloudflare Wrangler (optional artifacts)
+.wrangler/
+functions/node_modules/

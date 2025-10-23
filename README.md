@@ -1,6 +1,6 @@
 # CRCrypt Web
 
-Offline, zero‑persistence AES‑GCM 256 PWA. This guide deploys the static site to Cloudflare Pages using Wrangler v3.
+Offline, zero‑persistence AES‑256‑CBC (default) PWA with optional AES‑256‑GCM. This guide deploys the static site to Cloudflare Pages using Wrangler v3.
 
 Prerequisites
 - Cloudflare account with Pages enabled
@@ -24,7 +24,8 @@ Security headers
 Deploy steps
 1) Login: wrangler login
 2) Create the Pages project (one-time): wrangler pages project create crcrypt-web
-3) Publish the current directory: wrangler pages publish . --project-name=crcrypt-web
+3) Publish the current directory: wrangler pages deploy . --project-name=crcrypt-web --branch=production
+
 
 Local development with Pages
 - Run dev server: wrangler pages dev .
@@ -42,8 +43,9 @@ Zero‑persistence guarantee
 - Memory zeroization of buffers after crypto operations.
 
 Compatibility with CLI
-- Output: hex salt:iv:ciphertext:tag
-- AES‑256‑GCM, PBKDF2‑SHA256 310k iterations by default.
+- Output (AES‑256‑CBC default): hex salt:iv:ciphertext
+- Output (AES‑256‑GCM supported): hex salt:iv:ciphertext:tag
+- Defaults: AES‑256‑CBC, PBKDF2‑SHA256 100k iterations, salt 32 bytes, IV 16 bytes, key 32 bytes.
 - Adjust salt/iv/iterations/key via Advanced Settings.
 
 Updating the site

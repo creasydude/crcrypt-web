@@ -1,5 +1,5 @@
 // src/crypto.js
-// Offline-only crypto utilities using Web Crypto AES-GCM 256 and PBKDF2-SHA256.
+// Offline-only crypto utilities supporting AES-CBC and AES-GCM (128/192/256) via Web Crypto with PBKDF2-SHA256.
 // No persistence, no network, no side effects beyond returned values.
 
 import { toHex, fromHex } from "./utils/hex.js";
@@ -7,10 +7,16 @@ import { toHex, fromHex } from "./utils/hex.js";
 const enc = new TextEncoder();
 const dec = new TextDecoder("utf-8");
 
+export const ALGORITHMS = Object.freeze({
+  AES_GCM: "AES-GCM",
+  AES_CBC: "AES-CBC"
+});
+
 export const DEFAULTS = Object.freeze({
+  algorithm: ALGORITHMS.AES_CBC,
   saltLength: 32,
-  ivLength: 12,        // AES-GCM recommended 96-bit IV
-  iterations: 310000,  // PBKDF2 iterations
+  ivLength: 16,        // AES-CBC requires 128-bit IV
+  iterations: 100000,  // PBKDF2 iterations
   keyLength: 32        // 32 bytes = 256 bits
 });
 
@@ -47,13 +53,61 @@ export function randomBytes(length) {
  * Validate AES-GCM parameter constraints for interoperability and security.
  * @param {{keyLength:number, ivLength:number}} params
  */
-function validateAesGcmParams({ keyLength, ivLength }) {
-  if (keyLength !== 32) {
-    throw new Error("AES-256-GCM requires a 32-byte key length");
+function validateCipherParams({ algorithm, keyLength, ivLength }) {
+  const validKeyLens = [16, 24, 32]; // AES-128/192/256
+  if (!validKeyLens.includes(Number(keyLength))) {
+    throw new Error("AES requires a 16, 24, or 32-byte key length");
   }
-  if (ivLength !== 12) {
-    throw new Error("AES-GCM requires a 12-byte IV length");
+  if (algorithm === "AES-GCM") {
+    if (ivLength !== 12) {
+      throw new Error("AES-GCM requires a 12-byte IV length");
+    }
+  } else if (algorithm === "AES-CBC") {
+    if (ivLength !== 16) {
+      throw new Error("AES-CBC requires a 16-byte IV length");
+    }
+  } else {
+    throw new Error("Unsupported algorithm");
   }
+}
+
+/**
+ * PKCS#7 padding for AES block size (16 bytes).
+ * Creates a new Uint8Array with appropriate padding applied.
+ * @param {Uint8Array} data
+ * @param {number} blockSize
+ * @returns {Uint8Array}
+ */
+function pkcs7Pad(data, blockSize = 16) {
+  const rem = data.length % blockSize;
+  const padLen = rem === 0 ? blockSize : (blockSize - rem);
+  const out = new Uint8Array(data.length + padLen);
+  out.set(data, 0);
+  out.fill(padLen, data.length);
+  return out;
+}
+
+/**
+ * Remove PKCS#7 padding. Throws on invalid padding.
+ * @param {Uint8Array} data
+ * @param {number} blockSize
+ * @returns {Uint8Array}
+ */
+function pkcs7Unpad(data, blockSize = 16) {
+  if (!data || data.length === 0) {
+    throw new Error("Invalid padding");
+  }
+  const padLen = data[data.length - 1];
+  if (padLen <= 0 || padLen > blockSize || padLen > data.length) {
+    throw new Error("Invalid padding");
+  }
+  const start = data.length - padLen;
+  for (let i = start; i < data.length; i++) {
+    if (data[i] !== padLen) {
+      throw new Error("Invalid padding");
+    }
+  }
+  return data.slice(0, start);
 }
 
 /**
@@ -64,7 +118,13 @@ function validateAesGcmParams({ keyLength, ivLength }) {
  * @param {number} keyLength - bytes (must be 32 for AES-256-GCM)
  * @returns {Promise<CryptoKey>}
  */
-export async function deriveKeyPBKDF2(password, salt, iterations = DEFAULTS.iterations, keyLength = DEFAULTS.keyLength) {
+export async function deriveKeyPBKDF2(
+  password,
+  salt,
+  iterations = DEFAULTS.iterations,
+  keyLength = DEFAULTS.keyLength,
+  algorithm = DEFAULTS.algorithm
+) {
   ensureWebCrypto();
   if (typeof password !== "string" || password.trim() === "") {
     throw new Error("Password must not be empty");
@@ -75,27 +135,42 @@ export async function deriveKeyPBKDF2(password, salt, iterations = DEFAULTS.iter
   if (!Number.isInteger(iterations) || iterations <= 0) {
     throw new Error("Iterations must be a positive integer");
   }
-  if (keyLength !== 32) {
-    throw new Error("AES-256-GCM requires a 32-byte key length");
+  const validKeyLens = [16, 24, 32];
+  if (!validKeyLens.includes(Number(keyLength))) {
+    throw new Error("AES requires a 16, 24, or 32-byte key length");
   }
 
+  // Import password for PBKDF2 deriveBits
   const baseKey = await globalThis.crypto.subtle.importKey(
     "raw",
     utf8Encode(password),
     { name: "PBKDF2" },
     false,
-    ["deriveBits", "deriveKey"]
+    ["deriveBits"]
   );
 
-  const derivedKey = await globalThis.crypto.subtle.deriveKey(
+  // Derive raw key material (bytes) for AES-256
+  const bits = await globalThis.crypto.subtle.deriveBits(
     { name: "PBKDF2", salt, iterations, hash: "SHA-256" },
     baseKey,
-    { name: "AES-GCM", length: 256 },
-    false, // non-extractable for security
+    keyLength * 8 // 256 bits
+  );
+
+  const keyMaterial = new Uint8Array(bits);
+
+  // Import raw key material as AES key (CBC by default via DEFAULTS)
+  const cryptoKey = await globalThis.crypto.subtle.importKey(
+    "raw",
+    keyMaterial,
+    { name: algorithm },
+    false, // non-extractable
     ["encrypt", "decrypt"]
   );
 
-  return derivedKey;
+  // Hygiene: zeroize key material buffer
+  wipeBytes(keyMaterial);
+
+  return cryptoKey;
 }
 
 /**
@@ -107,14 +182,15 @@ export async function deriveKeyPBKDF2(password, salt, iterations = DEFAULTS.iter
  */
 export async function encryptText(plaintext, password, opts = {}) {
   ensureWebCrypto();
-  const {
-    saltLength = DEFAULTS.saltLength,
-    ivLength = DEFAULTS.ivLength,
-    iterations = DEFAULTS.iterations,
-    keyLength = DEFAULTS.keyLength
-  } = opts;
 
-  validateAesGcmParams({ keyLength, ivLength });
+  // Use provided options or defaults
+  const algorithm = opts.algorithm || DEFAULTS.algorithm;
+  const saltLength = opts.saltLength || DEFAULTS.saltLength;
+  const ivLength = opts.ivLength || DEFAULTS.ivLength;
+  const iterations = opts.iterations || DEFAULTS.iterations;
+  const keyLength = opts.keyLength || DEFAULTS.keyLength;
+
+  validateCipherParams({ algorithm, keyLength, ivLength });
 
   if (typeof plaintext !== "string" || plaintext.trim() === "") {
     throw new Error("Plaintext cannot be empty");
@@ -125,38 +201,63 @@ export async function encryptText(plaintext, password, opts = {}) {
 
   const salt = randomBytes(Number(saltLength));
   const iv = randomBytes(Number(ivLength));
-  const key = await deriveKeyPBKDF2(password, salt, Number(iterations), Number(keyLength));
+  const key = await deriveKeyPBKDF2(password, salt, Number(iterations), Number(keyLength), algorithm);
 
   const ptBytes = utf8Encode(plaintext);
-  let cipherBuf;
-  try {
-    cipherBuf = await globalThis.crypto.subtle.encrypt(
-      { name: "AES-GCM", iv, tagLength: 128 },
-      key,
-      ptBytes
-    );
-  } finally {
-    // Zeroize plaintext bytes ASAP
-    wipeBytes(ptBytes);
-  }
+  let out;
 
-  const all = new Uint8Array(cipherBuf);
-  const TAG_LEN = 16; // bytes (128-bit tag)
-  if (all.length < TAG_LEN) {
+  if (algorithm === "AES-GCM") {
+    let cipherBuf;
+    try {
+      cipherBuf = await globalThis.crypto.subtle.encrypt(
+        { name: "AES-GCM", iv, tagLength: 128 },
+        key,
+        ptBytes
+      );
+    } finally {
+      // Zeroize plaintext bytes ASAP
+      wipeBytes(ptBytes);
+    }
+
+    const all = new Uint8Array(cipherBuf);
+    const TAG_LEN = 16; // bytes (128-bit tag)
+    if (all.length < TAG_LEN) {
+      wipeBytes(all);
+      throw new Error("Encryption failed: ciphertext too short");
+    }
+
+    const cipherLen = all.length - TAG_LEN;
+    const ciphertext = all.slice(0, cipherLen);
+    const tag = all.slice(cipherLen);
+
+    out = `${toHex(salt)}:${toHex(iv)}:${toHex(ciphertext)}:${toHex(tag)}`;
+
+    // Hygiene: zeroize intermediates
     wipeBytes(all);
-    throw new Error("Encryption failed: ciphertext too short");
+    wipeBytes(ciphertext);
+    wipeBytes(tag);
+  } else {
+    // AES-CBC with PKCS#7 padding
+    let padded = pkcs7Pad(ptBytes, 16);
+    // Zeroize plaintext ASAP
+    wipeBytes(ptBytes);
+
+    const cipherBuf = await globalThis.crypto.subtle.encrypt(
+      { name: "AES-CBC", iv },
+      key,
+      padded
+    );
+
+    // Hygiene: zeroize padded bytes
+    wipeBytes(padded);
+
+    const ciphertext = new Uint8Array(cipherBuf);
+    out = `${toHex(salt)}:${toHex(iv)}:${toHex(ciphertext)}`;
+
+    // Hygiene: zeroize intermediates
+    wipeBytes(ciphertext);
   }
 
-  const cipherLen = all.length - TAG_LEN;
-  const ciphertext = all.slice(0, cipherLen);
-  const tag = all.slice(cipherLen);
-
-  const out = `${toHex(salt)}:${toHex(iv)}:${toHex(ciphertext)}:${toHex(tag)}`;
-
-  // Hygiene: zeroize intermediates
-  wipeBytes(all);
-  wipeBytes(ciphertext);
-  wipeBytes(tag);
   // CryptoKey cannot be directly zeroized; drop reference
   // (garbage collector will reclaim memory)
   return out;
@@ -171,10 +272,8 @@ export async function encryptText(plaintext, password, opts = {}) {
  */
 export async function decryptText(encString, password, opts = {}) {
   ensureWebCrypto();
-  const {
-    iterations = DEFAULTS.iterations,
-    keyLength = DEFAULTS.keyLength
-  } = opts;
+  const iterations = Number.isInteger(opts.iterations) ? Number(opts.iterations) : DEFAULTS.iterations;
+  // keyLength hint is optional; auto-detection will try 32, 24, then 16 if not provided
 
   if (typeof encString !== "string" || encString.trim() === "") {
     throw new Error("Encrypted input cannot be empty");
@@ -184,49 +283,118 @@ export async function decryptText(encString, password, opts = {}) {
   }
 
   const parts = encString.split(":");
-  if (parts.length !== 4) {
-    throw new Error("Invalid format. Expected salt:iv:ciphertext:tag");
+  if (parts.length !== 3 && parts.length !== 4) {
+    throw new Error("Invalid format. Expected salt:iv:ciphertext or salt:iv:ciphertext:tag");
   }
 
   const [saltHex, ivHex, cipherHex, tagHex] = parts.map(s => s.trim());
   const salt = fromHex(saltHex);
   const iv = fromHex(ivHex);
-  const ciphertext = fromHex(cipherHex);
-  const tag = fromHex(tagHex);
 
-  validateAesGcmParams({ keyLength: Number(keyLength), ivLength: iv.length });
+  // Auto-detect algorithm: 4 parts => AES-GCM (ciphertext + tag), 3 parts => AES-CBC
+  const algorithm = (parts.length === 4) ? "AES-GCM" : "AES-CBC";
 
-  const joined = new Uint8Array(ciphertext.length + tag.length);
-  joined.set(ciphertext, 0);
-  joined.set(tag, ciphertext.length);
+  // Build candidate key lengths (use hint first if provided)
+  const keyHint = Number(opts.keyLength);
+  const keyCandidates = [32, 24, 16].filter((k) => k !== keyHint);
+  const keyOrder = Number.isInteger(keyHint) ? [keyHint, ...keyCandidates] : [32, 24, 16];
+
+  // Validate IV length against algorithm using first candidate key length
+  validateCipherParams({ algorithm, keyLength: keyOrder[0], ivLength: iv.length });
 
   try {
-    const key = await deriveKeyPBKDF2(password, salt, Number(iterations), Number(keyLength));
-    const buf = await globalThis.crypto.subtle.decrypt(
-      { name: "AES-GCM", iv, tagLength: 128 },
-      key,
-      joined
-    );
-    const ptBytes = new Uint8Array(buf);
-    const plaintext = utf8Decode(ptBytes);
+    // Pre-parse ciphertext (and tag if present) once
+    const ciphertext = fromHex(cipherHex);
+    const tag = algorithm === "AES-GCM" ? fromHex(tagHex) : undefined;
 
-    // Hygiene: zeroize intermediates
-    wipeBytes(ptBytes);
+    for (const klen of keyOrder) {
+      try {
+        validateCipherParams({ algorithm, keyLength: Number(klen), ivLength: iv.length });
+
+        const key = await deriveKeyPBKDF2(
+          password,
+          salt,
+          Number(iterations),
+          Number(klen),
+          algorithm
+        );
+
+        if (algorithm === "AES-GCM") {
+          const joined = new Uint8Array(ciphertext.length + (tag ? tag.length : 0));
+          joined.set(ciphertext, 0);
+          if (tag) joined.set(tag, ciphertext.length);
+
+          const buf = await globalThis.crypto.subtle.decrypt(
+            { name: "AES-GCM", iv, tagLength: 128 },
+            key,
+            joined
+          );
+          const ptBytes = new Uint8Array(buf);
+          const plaintext = utf8Decode(ptBytes);
+
+          // Hygiene: zeroize intermediates
+          wipeBytes(ptBytes);
+          wipeBytes(salt);
+          wipeBytes(iv);
+          wipeBytes(ciphertext);
+          if (tag) wipeBytes(tag);
+          wipeBytes(joined);
+
+          return plaintext;
+        } else {
+          // AES-CBC - try without unpadding first (CLI doesn't use PKCS#7)
+          try {
+            const buf = await globalThis.crypto.subtle.decrypt(
+              { name: "AES-CBC", iv },
+              key,
+              ciphertext
+            );
+            const ptBytes = new Uint8Array(buf);
+            const plaintext = utf8Decode(ptBytes);
+
+            // Hygiene: zeroize intermediates
+            wipeBytes(ptBytes);
+            wipeBytes(salt);
+            wipeBytes(iv);
+            wipeBytes(ciphertext);
+
+            return plaintext;
+          } catch (e) {
+            // If that fails, try with PKCS#7 unpadding
+            const buf = await globalThis.crypto.subtle.decrypt(
+              { name: "AES-CBC", iv },
+              key,
+              ciphertext
+            );
+            const padded = new Uint8Array(buf);
+            const ptBytes = pkcs7Unpad(padded, 16);
+            const plaintext = utf8Decode(ptBytes);
+
+            // Hygiene: zeroize intermediates
+            wipeBytes(ptBytes);
+            wipeBytes(padded);
+            wipeBytes(salt);
+            wipeBytes(iv);
+            wipeBytes(ciphertext);
+
+            return plaintext;
+          }
+        }
+      } catch (_inner) {
+        // Try next candidate key length
+        continue;
+      }
+    }
+
+    // If all candidates failed
+    // Hygiene on failure
     wipeBytes(salt);
     wipeBytes(iv);
     wipeBytes(ciphertext);
-    wipeBytes(tag);
-    wipeBytes(joined);
+    if (tag) wipeBytes(tag);
 
-    return plaintext;
+    throw new Error("Decryption failed: wrong password or mismatched parameters");
   } catch (err) {
-    // Hygiene on failure too
-    wipeBytes(salt);
-    wipeBytes(iv);
-    wipeBytes(ciphertext);
-    wipeBytes(tag);
-    wipeBytes(joined);
-
     // Keep error generic to avoid leaking specifics
     if (err && (err.name === "OperationError" || err instanceof DOMException)) {
       throw new Error("Decryption failed: wrong password or corrupted input");

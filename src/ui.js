@@ -25,6 +25,7 @@ const refs = {
   advIvLen: null,
   advIterations: null,
   advKeyLen: null,
+  advAlgo: null,
   encryptBtn: null,
   cipherOutput: null,
   copyCipherBtn: null,
@@ -63,6 +64,7 @@ export function initUI() {
   refs.advIvLen = el("advIvLen");
   refs.advIterations = el("advIterations");
   refs.advKeyLen = el("advKeyLen");
+  refs.advAlgo = el("advAlgo");
   refs.encryptBtn = el("encryptBtn");
   refs.cipherOutput = el("cipherOutput");
   refs.copyCipherBtn = el("copyCipherBtn");
@@ -212,8 +214,7 @@ async function handleDecryptSubmit(ev) {
 
   try {
     const plaintext = await decryptText(encString, password, {
-      iterations: settings.iterations,
-      keyLength: settings.keyLength
+      iterations: settings.iterations
     });
     refs.plainOutput.value = plaintext;
     announce("Decryption completed");
@@ -296,10 +297,13 @@ function clearAll() {
   refs.plainOutput.value = "";
 
   // Reset Advanced Settings to defaults
+  if (refs.advAlgo) refs.advAlgo.value = "AES-256-CBC";
   refs.advSaltLen.value = String(DEFAULTS.saltLength);
-  refs.advIvLen.value = String(DEFAULTS.ivLength);
   refs.advIterations.value = String(DEFAULTS.iterations);
   refs.advKeyLen.value = String(DEFAULTS.keyLength);
+  
+  // Update algorithm settings
+  updateAlgorithmSettings();
 
   // Reset strength meter
   updateStrengthMeter("");
@@ -348,64 +352,95 @@ function setFontScale(scale) {
 }
 
 function initAdvancedSettings() {
-  // Enforce constraints visually via input attributes already set in HTML.
-  // Add real-time validation feedback.
-  const inputs = [refs.advSaltLen, refs.advIvLen, refs.advIterations, refs.advKeyLen];
-  inputs.forEach((input) => {
-    input.addEventListener("input", () => {
-      const { ok } = validateAdvancedSettings(readAdvancedSettings());
-      input.setAttribute("aria-invalid", String(!ok));
-    });
-  });
+  // Set initial values
+  refs.advSaltLen.value = String(DEFAULTS.saltLength);
+  refs.advIvLen.value = String(DEFAULTS.ivLength);
+  refs.advIterations.value = String(DEFAULTS.iterations);
+  refs.advKeyLen.value = String(DEFAULTS.keyLength);
+  if (refs.advAlgo) refs.advAlgo.value = "AES-256-CBC"; // Match CLI default
+
+  try {
+    // Enable all settings for encryption
+    refs.advSaltLen.disabled = false;
+    refs.advIvLen.disabled = false;
+    refs.advIterations.disabled = false;
+    refs.advKeyLen.disabled = false;
+    if (refs.advAlgo) refs.advAlgo.disabled = false;
+
+    // Add algorithm change listener to update IV and key length
+    refs.advAlgo.addEventListener("change", updateAlgorithmSettings);
+    
+    // Initial update based on selected algorithm
+    updateAlgorithmSettings();
+
+    // Update helper texts
+    const ivHelp = document.getElementById("advIvHelp");
+    if (ivHelp) ivHelp.textContent = "AES-CBC requires 16-byte IV, AES-GCM requires 12-byte IV.";
+    const iterHelp = document.getElementById("advIterHelp");
+    if (iterHelp) iterHelp.textContent = "Default 100k. Higher is slower, more secure. Match CLI config for compatibility.";
+  } catch {}
 }
 
 function readAdvancedSettings() {
-  const saltLength = parseInt(refs.advSaltLen.value, 10);
-  const ivLength = parseInt(refs.advIvLen.value, 10);
-  const iterations = parseInt(refs.advIterations.value, 10);
-  const keyLength = parseInt(refs.advKeyLen.value, 10);
-  return { saltLength, ivLength, iterations, keyLength };
+  // Read all settings from UI
+  const saltLen = Number.parseInt(refs.advSaltLen.value ?? String(DEFAULTS.saltLength), 10);
+  const ivLen = Number.parseInt(refs.advIvLen.value ?? String(DEFAULTS.ivLength), 10);
+  const iterStr = refs.advIterations.value ?? String(DEFAULTS.iterations);
+  const iterNum = Number.parseInt(iterStr, 10);
+  const keyLen = Number.parseInt(refs.advKeyLen.value ?? String(DEFAULTS.keyLength), 10);
+  const algo = refs.advAlgo.value ?? "AES-256-CBC";
+
+  // Convert CLI algorithm names to Web Crypto names
+  const webAlgo = algo.includes("GCM") ? "AES-GCM" : "AES-CBC";
+
+  return {
+    saltLength: Number.isFinite(saltLen) && saltLen > 0 ? saltLen : DEFAULTS.saltLength,
+    ivLength: Number.isFinite(ivLen) && ivLen > 0 ? ivLen : DEFAULTS.ivLength,
+    iterations: Number.isFinite(iterNum) && iterNum > 0 ? iterNum : DEFAULTS.iterations,
+    keyLength: Number.isFinite(keyLen) && keyLen > 0 ? keyLen : DEFAULTS.keyLength,
+    algorithm: webAlgo,
+    cliAlgorithm: algo // Keep CLI algorithm name for reference
+  };
 }
 
-function validateAdvancedSettings(vals) {
-  // Defaults
-  const settings = {
-    saltLength: Number.isFinite(vals.saltLength) ? vals.saltLength : DEFAULTS.saltLength,
-    ivLength: Number.isFinite(vals.ivLength) ? vals.ivLength : DEFAULTS.ivLength,
-    iterations: Number.isFinite(vals.iterations) ? vals.iterations : DEFAULTS.iterations,
-    keyLength: Number.isFinite(vals.keyLength) ? vals.keyLength : DEFAULTS.keyLength
-  };
-
-  // Enforce AES-GCM 256 constraints
-  if (settings.ivLength !== 12) {
-    refs.advIvLen.setAttribute("aria-invalid", "true");
-    return { ok: false, settings, message: "AES-GCM requires 12-byte IV" };
-  } else {
-    refs.advIvLen.removeAttribute("aria-invalid");
-  }
-
-  if (settings.keyLength !== 32) {
-    refs.advKeyLen.setAttribute("aria-invalid", "true");
-    return { ok: false, settings, message: "AES-256-GCM requires 32-byte key" };
-  } else {
-    refs.advKeyLen.removeAttribute("aria-invalid");
-  }
-
-  if (!(settings.saltLength >= 16 && settings.saltLength <= 64)) {
-    refs.advSaltLen.setAttribute("aria-invalid", "true");
-    return { ok: false, settings, message: "Salt length must be between 16 and 64 bytes" };
-  } else {
+function validateAdvancedSettings(_vals) {
+  const settings = readAdvancedSettings();
+  
+  try {
+    // Validate salt length
+    if (settings.saltLength < 16 || settings.saltLength > 64) {
+      refs.advSaltLen.setAttribute("aria-invalid", "true");
+      return { ok: false, settings, message: "Salt length must be between 16 and 64 bytes" };
+    }
     refs.advSaltLen.removeAttribute("aria-invalid");
-  }
 
-  if (!(settings.iterations >= 100000 && settings.iterations <= 1000000)) {
-    refs.advIterations.setAttribute("aria-invalid", "true");
-    return { ok: false, settings, message: "Iterations must be between 100k and 1M" };
-  } else {
+    // Validate IV length based on algorithm
+    const expectedIvLength = settings.algorithm === "AES-GCM" ? 12 : 16;
+    if (settings.ivLength !== expectedIvLength) {
+      refs.advIvLen.setAttribute("aria-invalid", "true");
+      return { ok: false, settings, message: `${settings.algorithm} requires ${expectedIvLength}-byte IV` };
+    }
+    refs.advIvLen.removeAttribute("aria-invalid");
+
+    // Validate iterations
+    if (settings.iterations < 10000 || settings.iterations > 1000000) {
+      refs.advIterations.setAttribute("aria-invalid", "true");
+      return { ok: false, settings, message: "Iterations must be between 10,000 and 1,000,000" };
+    }
     refs.advIterations.removeAttribute("aria-invalid");
-  }
 
-  return { ok: true, settings, message: "" };
+    // Validate key length
+    const validKeyLengths = [16, 24, 32];
+    if (!validKeyLengths.includes(settings.keyLength)) {
+      refs.advKeyLen.setAttribute("aria-invalid", "true");
+      return { ok: false, settings, message: "Key length must be 16, 24, or 32 bytes" };
+    }
+    refs.advKeyLen.removeAttribute("aria-invalid");
+
+    return { ok: true, settings, message: "" };
+  } catch {
+    return { ok: false, settings, message: "Failed to validate Advanced Settings" };
+  }
 }
 
 function initSettingsModal() {
@@ -531,6 +566,40 @@ function announce(message) {
   const notice = $(".notice");
   if (notice) {
     notice.textContent = message;
+  }
+}
+
+function updateAlgorithmSettings() {
+  const algo = refs.advAlgo.value;
+  const isGCM = algo.includes("GCM");
+  
+  // Update IV length based on algorithm
+  const ivLength = isGCM ? 12 : 16;
+  refs.advIvLen.value = String(ivLength);
+  refs.advIvLen.setAttribute("min", String(ivLength));
+  refs.advIvLen.setAttribute("max", String(ivLength));
+  refs.advIvLen.setAttribute("step", "1");
+  
+  // Update key length based on algorithm
+  let keyLength = 32; // default to 256
+  if (algo.includes("192")) keyLength = 24;
+  else if (algo.includes("128")) keyLength = 16;
+  
+  refs.advKeyLen.value = String(keyLength);
+  refs.advKeyLen.setAttribute("min", String(keyLength));
+  refs.advKeyLen.setAttribute("max", String(keyLength));
+  refs.advKeyLen.setAttribute("step", "1");
+  
+  // Update helper text
+  const ivHelp = document.getElementById("advIvHelp");
+  if (ivHelp) {
+    ivHelp.textContent = `${algo} requires ${ivLength}-byte IV.`;
+  }
+  
+  const keyHelp = document.getElementById("advKeyHelp");
+  if (keyHelp) {
+    const bits = keyLength * 8;
+    keyHelp.textContent = `${algo} uses ${bits}-bit key (${keyLength} bytes).`;
   }
 }
 

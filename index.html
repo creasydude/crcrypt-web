@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'; connect-src 'self'; worker-src 'self'">
   <meta name="color-scheme" content="light dark">
-  <title>CRCYPT - Offline, zero-persistence AES‑GCM 256 encryption/decryption</title>
+  <title>CRCRYPT - Offline, zero-persistence AES‑256‑CBC (default) encryption/decryption</title>
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="stylesheet" href="styles.css">
 </head>
@@ -26,7 +26,7 @@
         </button>
       </div>
     </div>
-    <p class="subtitle" aria-live="polite">Offline, zero-persistence AES‑GCM 256 encryption/decryption. No data is saved or sent anywhere.</p>
+    <p class="subtitle" aria-live="polite">Offline, zero-persistence AES‑256‑CBC (default) encryption/decryption. AES‑GCM is also supported. No data is saved or sent anywhere.</p>
 
     <!-- Popovers moved inside header toolbar -->
   </header>
@@ -60,21 +60,31 @@
         <details id="advSettings" class="advanced">
           <summary>Advanced Settings</summary>
           <div class="grid">
+            <label for="advAlgo">AES algorithm</label>
+            <select id="advAlgo" aria-describedby="advAlgoHelp">
+              <option value="AES-256-CBC" selected>AES-256-CBC (Recommended)</option>
+              <option value="AES-192-CBC">AES-192-CBC</option>
+              <option value="AES-128-CBC">AES-128-CBC</option>
+              <option value="AES-256-GCM">AES-256-GCM</option>
+              <option value="AES-192-GCM">AES-192-GCM</option>
+              <option value="AES-128-GCM">AES-128-GCM</option>
+            </select>
+            <small id="advAlgoHelp" class="help">CBC outputs salt:iv:ciphertext. GCM outputs salt:iv:ciphertext:tag.</small>
             <label for="advSaltLen">Salt length (bytes)</label>
             <input id="advSaltLen" type="number" min="16" max="64" step="1" value="32" aria-describedby="advSaltHelp">
             <small id="advSaltHelp" class="help">Default 32. Range 16–64.</small>
 
             <label for="advIvLen">IV length (bytes)</label>
-            <input id="advIvLen" type="number" min="12" max="12" step="1" value="12" aria-describedby="advIvHelp">
-            <small id="advIvHelp" class="help">AES-GCM requires 12-byte IV.</small>
+            <input id="advIvLen" type="number" min="12" max="16" step="1" value="16" aria-describedby="advIvHelp">
+            <small id="advIvHelp" class="help">AES-CBC requires 16-byte IV, AES-GCM requires 12-byte IV.</small>
 
             <label for="advIterations">PBKDF2 iterations</label>
-            <input id="advIterations" type="number" min="100000" max="1000000" step="1000" value="310000" aria-describedby="advIterHelp">
-            <small id="advIterHelp" class="help">Default 310k. Higher is slower, more secure.</small>
+            <input id="advIterations" type="number" min="10000" max="1000000" step="1000" value="100000" aria-describedby="advIterHelp">
+            <small id="advIterHelp" class="help">Default 100k. Higher is slower, more secure.</small>
 
             <label for="advKeyLen">Key length (bytes)</label>
-            <input id="advKeyLen" type="number" min="32" max="32" step="1" value="32" aria-describedby="advKeyHelp">
-            <small id="advKeyHelp" class="help">AES-256-GCM requires 32-byte key.</small>
+            <input id="advKeyLen" type="number" min="16" max="32" step="8" value="32" aria-describedby="advKeyHelp">
+            <small id="advKeyHelp" class="help">Key length: 16 (AES-128), 24 (AES-192), 32 (AES-256).</small>
           </div>
         </details>
 
@@ -84,7 +94,7 @@
       </form>
 
       <div class="output-group">
-        <label for="cipherOutput">Encrypted output (salt:iv:ciphertext:tag)</label>
+        <label for="cipherOutput">Encrypted output (salt:iv:ciphertext[:tag])</label>
         <textarea id="cipherOutput" rows="4" readonly></textarea>
         <div class="actions">
           <button id="copyCipherBtn" type="button">Copy</button>
@@ -94,7 +104,7 @@
 
     <section id="decryptPanel" role="tabpanel" aria-labelledby="tabDecrypt" hidden>
       <form id="decryptForm" autocomplete="off" autocapitalize="off" spellcheck="false" novalidate>
-        <label for="cipherInput">Encrypted input (salt:iv:ciphertext:tag)</label>
+        <label for="cipherInput">Encrypted input (salt:iv:ciphertext[:tag])</label>
         <textarea id="cipherInput" rows="6" placeholder="Enter encrypted text" required></textarea>
 
         <label for="decryptPasswordInput">Password</label>

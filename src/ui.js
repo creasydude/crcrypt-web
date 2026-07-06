@@ -14,6 +14,7 @@ const refs = {
   tabDecrypt: null,
   encryptPanel: null,
   decryptPanel: null,
+  modeIndicator: null,
   // Encrypt form
   encryptForm: null,
   plaintextInput: null,
@@ -38,21 +39,71 @@ const refs = {
   copyPlainBtn: null,
   // Footer
   clearBtn: null,
+  noticeText: null,
   // Theme & font controls
   themeRadios: null,
   fontRadios: null,
   // Settings modal
   settingsTrigger: null,
   settingsModal: null,
-  settingsClose: null
+  settingsClose: null,
 };
 
+// ── Toast System ──────────────────────────────────────────────
+function ensureToastContainer() {
+  let container = $(".toast-container");
+  if (!container) {
+    container = document.createElement("div");
+    container.className = "toast-container";
+    container.setAttribute("aria-live", "polite");
+    container.setAttribute("aria-atomic", "true");
+    document.body.appendChild(container);
+  }
+  return container;
+}
+
+function showToast(message, type = "info") {
+  const container = ensureToastContainer();
+  const toast = document.createElement("div");
+  toast.className = `toast toast--${type}`;
+
+  // Icon
+  const iconMap = {
+    success: '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>',
+    error: '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>',
+    info: '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>',
+  };
+
+  toast.innerHTML = `${iconMap[type] || iconMap.info}<span>${message}</span>`;
+  container.appendChild(toast);
+
+  // Auto-dismiss after 3.5s
+  setTimeout(() => {
+    toast.classList.add("toast--exit");
+    toast.addEventListener("animationend", () => toast.remove(), { once: true });
+  }, 3500);
+}
+
+// ── Announce (footer + toast) ─────────────────────────────────
+function announce(message, type = "info") {
+  // Update footer notice
+  if (refs.noticeText) {
+    refs.noticeText.textContent = message;
+  }
+  // Show toast for important messages
+  if (type === "error" || type === "success") {
+    showToast(message, type);
+  }
+}
+
+// ── Boot ──────────────────────────────────────────────────────
 export function initUI() {
   // Bind refs
   refs.tabEncrypt = el("tabEncrypt");
   refs.tabDecrypt = el("tabDecrypt");
   refs.encryptPanel = el("encryptPanel");
   refs.decryptPanel = el("decryptPanel");
+  refs.modeIndicator = $(".mode-indicator");
 
   refs.encryptForm = el("encryptForm");
   refs.plaintextInput = el("plaintextInput");
@@ -77,6 +128,7 @@ export function initUI() {
   refs.copyPlainBtn = el("copyPlainBtn");
 
   refs.clearBtn = el("clearBtn");
+  refs.noticeText = el("noticeText");
 
   refs.themeRadios = Array.from(document.querySelectorAll('input[name="theme"]'));
   refs.fontRadios = Array.from(document.querySelectorAll('input[name="fontScale"]'));
@@ -92,12 +144,17 @@ export function initUI() {
   refs.passwordInput.addEventListener("change", () => updateStrengthMeter(refs.passwordInput.value));
 
   refs.encryptForm.addEventListener("submit", handleEncryptSubmit);
-  refs.copyCipherBtn.addEventListener("click", () => copyOutput(refs.cipherOutput.value));
+  refs.copyCipherBtn.addEventListener("click", () => copyOutput(refs.cipherOutput.value, refs.copyCipherBtn));
 
   refs.decryptForm.addEventListener("submit", handleDecryptSubmit);
-  refs.copyPlainBtn.addEventListener("click", () => copyOutput(refs.plainOutput.value));
+  refs.copyPlainBtn.addEventListener("click", () => copyOutput(refs.plainOutput.value, refs.copyPlainBtn));
 
   refs.clearBtn.addEventListener("click", clearAll);
+
+  // Password toggles
+  document.querySelectorAll('[data-toggle="password"]').forEach((btn) => {
+    btn.addEventListener("click", () => togglePasswordVisibility(btn));
+  });
 
   initThemeToggle();
   initFontSizeControls();
@@ -109,6 +166,29 @@ export function initUI() {
   updateStrengthMeter("");
 }
 
+// ── Password Visibility Toggle ────────────────────────────────
+function togglePasswordVisibility(btn) {
+  const wrapper = btn.closest(".input-wrapper");
+  if (!wrapper) return;
+  const input = wrapper.querySelector("input");
+  if (!input) return;
+
+  const isPassword = input.type === "password";
+  input.type = isPassword ? "text" : "password";
+
+  // Swap icon: eye (show) ↔ eye-off (hide)
+  if (isPassword) {
+    btn.innerHTML = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19m-6.72-1.07a3 3 0 11-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>';
+    btn.setAttribute("aria-label", "Hide password");
+  } else {
+    btn.innerHTML = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>';
+    btn.setAttribute("aria-label", "Show password");
+  }
+
+  input.focus();
+}
+
+// ── Mode Switch ───────────────────────────────────────────────
 function handleModeSwitch(mode) {
   const isEncrypt = mode === "encrypt";
 
@@ -117,6 +197,11 @@ function handleModeSwitch(mode) {
 
   refs.tabEncrypt.tabIndex = isEncrypt ? 0 : -1;
   refs.tabDecrypt.tabIndex = !isEncrypt ? 0 : -1;
+
+  // Animate mode indicator
+  if (refs.modeIndicator) {
+    refs.modeIndicator.setAttribute("data-active", isEncrypt ? "encrypt" : "decrypt");
+  }
 
   if (isEncrypt) {
     refs.encryptPanel.hidden = false;
@@ -129,6 +214,7 @@ function handleModeSwitch(mode) {
   }
 }
 
+// ── Encrypt ───────────────────────────────────────────────────
 async function handleEncryptSubmit(ev) {
   ev.preventDefault();
 
@@ -137,17 +223,17 @@ async function handleEncryptSubmit(ev) {
   const passwordConfirm = refs.passwordConfirmInput.value ?? "";
 
   if (plaintext.length === 0) {
-    announce("Plaintext cannot be empty");
+    announce("Plaintext cannot be empty", "error");
     refs.plaintextInput.focus();
     return;
   }
   if (password.trim() === "") {
-    announce("Password cannot be empty");
+    announce("Password cannot be empty", "error");
     refs.passwordInput.focus();
     return;
   }
   if (password !== passwordConfirm) {
-    announce("Passwords must match");
+    announce("Passwords must match", "error");
     refs.passwordConfirmInput.setAttribute("aria-invalid", "true");
     refs.passwordConfirmInput.focus();
     return;
@@ -157,21 +243,21 @@ async function handleEncryptSubmit(ev) {
 
   const { ok, settings, message } = validateAdvancedSettings(readAdvancedSettings());
   if (!ok) {
-    announce(message || "Invalid Advanced Settings");
+    announce(message || "Invalid Advanced Settings", "error");
     return;
   }
 
   // Busy state
   refs.encryptBtn.disabled = true;
-  refs.encryptForm.setAttribute("aria-busy", "true");
-  refs.encryptBtn.textContent = "Encrypting…";
+  refs.encryptBtn.setAttribute("aria-busy", "true");
+  refs.encryptBtn.querySelector("span").textContent = "Encrypting...";
 
   try {
     const encString = await encryptText(plaintext, password, settings);
     refs.cipherOutput.value = encString;
-    announce("Encryption completed");
+    announce("Encryption completed", "success");
   } catch (err) {
-    announce(err?.message || "Encryption failed");
+    announce(err?.message || "Encryption failed", "error");
   } finally {
     // Hygiene: clear passwords and plaintext fields
     refs.passwordInput.value = "";
@@ -179,11 +265,15 @@ async function handleEncryptSubmit(ev) {
     refs.plaintextInput.value = "";
 
     refs.encryptBtn.disabled = false;
-    refs.encryptForm.removeAttribute("aria-busy");
-    refs.encryptBtn.textContent = "Encrypt";
+    refs.encryptBtn.removeAttribute("aria-busy");
+    refs.encryptBtn.querySelector("span").textContent = "Encrypt";
+
+    // Reset password toggles
+    resetPasswordToggles(refs.encryptForm);
   }
 }
 
+// ── Decrypt ───────────────────────────────────────────────────
 async function handleDecryptSubmit(ev) {
   ev.preventDefault();
 
@@ -191,46 +281,58 @@ async function handleDecryptSubmit(ev) {
   const password = refs.decryptPasswordInput.value ?? "";
 
   if (encString.length === 0) {
-    announce("Encrypted input cannot be empty");
+    announce("Encrypted input cannot be empty", "error");
     refs.cipherInput.focus();
     return;
   }
   if (password.trim() === "") {
-    announce("Password cannot be empty");
+    announce("Password cannot be empty", "error");
     refs.decryptPasswordInput.focus();
     return;
   }
 
   const { ok, settings, message } = validateAdvancedSettings(readAdvancedSettings());
   if (!ok) {
-    announce(message || "Invalid Advanced Settings");
+    announce(message || "Invalid Advanced Settings", "error");
     return;
   }
 
   // Busy state
   refs.decryptBtn.disabled = true;
-  refs.decryptForm.setAttribute("aria-busy", "true");
-  refs.decryptBtn.textContent = "Decrypting…";
+  refs.decryptBtn.setAttribute("aria-busy", "true");
+  refs.decryptBtn.querySelector("span").textContent = "Decrypting...";
 
   try {
     const plaintext = await decryptText(encString, password, {
-      iterations: settings.iterations
+      iterations: settings.iterations,
     });
     refs.plainOutput.value = plaintext;
-    announce("Decryption completed");
+    announce("Decryption completed", "success");
   } catch (err) {
-    announce(err?.message || "Decryption failed");
+    announce(err?.message || "Decryption failed", "error");
   } finally {
     // Hygiene: clear password and enc input
     refs.decryptPasswordInput.value = "";
     refs.cipherInput.value = "";
 
     refs.decryptBtn.disabled = false;
-    refs.decryptForm.removeAttribute("aria-busy");
-    refs.decryptBtn.textContent = "Decrypt";
+    refs.decryptBtn.removeAttribute("aria-busy");
+    refs.decryptBtn.querySelector("span").textContent = "Decrypt";
+
+    // Reset password toggles
+    resetPasswordToggles(refs.decryptForm);
   }
 }
 
+function resetPasswordToggles(form) {
+  if (!form) return;
+  form.querySelectorAll('input[type="text"][data-was-password]').forEach((input) => {
+    input.type = "password";
+    input.removeAttribute("data-was-password");
+  });
+}
+
+// ── Password Strength ─────────────────────────────────────────
 function updateStrengthMeter(password) {
   const len = password.length;
   const hasLower = /[a-z]/.test(password);
@@ -247,30 +349,41 @@ function updateStrengthMeter(password) {
   if (hasSymbol) score += 1;
 
   const pct = Math.min(100, Math.round((score / 6) * 100));
-  const label = pct < 34 ? "Weak" : pct < 67 ? "Medium" : "Strong";
+  let label, cls;
 
-  // Update label
+  if (pct < 25) {
+    label = "Weak";
+    cls = "s-0";
+  } else if (pct < 50) {
+    label = "Fair";
+    cls = "s-25";
+  } else if (pct < 75) {
+    label = "Good";
+    cls = "s-50";
+  } else if (pct < 90) {
+    label = "Strong";
+    cls = "s-75";
+  } else {
+    label = "Very Strong";
+    cls = "s-100";
+  }
+
   refs.strengthLabel.textContent = `Strength: ${label}`;
-
-  // Update visual bar using discrete classes (CSS additions recommended)
-  // Classes: s-0, s-25, s-50, s-75, s-100
-  const cls = pct >= 85 ? "s-100" : pct >= 60 ? "s-75" : pct >= 35 ? "s-50" : pct >= 15 ? "s-25" : "s-0";
   refs.strengthBar.classList.remove("s-0", "s-25", "s-50", "s-75", "s-100");
   refs.strengthBar.classList.add(cls);
 }
 
-async function copyOutput(text) {
+// ── Copy to Clipboard ─────────────────────────────────────────
+async function copyOutput(text, btn) {
   const trimmed = (text ?? "").trim();
   if (trimmed.length === 0) {
-    announce("Nothing to copy");
+    announce("Nothing to copy", "info");
     return;
   }
   try {
     if (navigator.clipboard && typeof navigator.clipboard.writeText === "function") {
       await navigator.clipboard.writeText(trimmed);
-      announce("Copied to clipboard");
     } else {
-      // Fallback
       const ta = document.createElement("textarea");
       ta.value = trimmed;
       ta.setAttribute("readonly", "");
@@ -280,19 +393,30 @@ async function copyOutput(text) {
       ta.select();
       document.execCommand("copy");
       document.body.removeChild(ta);
-      announce("Copied to clipboard");
     }
+
+    // Visual feedback on button
+    if (btn) {
+      const originalHTML = btn.innerHTML;
+      btn.innerHTML = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg><span>Copied!</span>';
+      btn.style.color = "var(--success)";
+      setTimeout(() => {
+        btn.innerHTML = originalHTML;
+        btn.style.color = "";
+      }, 2000);
+    }
+
+    announce("Copied to clipboard", "success");
   } catch {
-    announce("Copy failed");
+    announce("Copy failed", "error");
   }
 }
 
+// ── Clear All ─────────────────────────────────────────────────
 function clearAll() {
-  // Clear form fields
   if (refs.encryptForm) refs.encryptForm.reset();
   if (refs.decryptForm) refs.decryptForm.reset();
 
-  // Explicitly clear outputs
   refs.cipherOutput.value = "";
   refs.plainOutput.value = "";
 
@@ -301,18 +425,20 @@ function clearAll() {
   refs.advSaltLen.value = String(DEFAULTS.saltLength);
   refs.advIterations.value = String(DEFAULTS.iterations);
   refs.advKeyLen.value = String(DEFAULTS.keyLength);
-  
-  // Update algorithm settings
-  updateAlgorithmSettings();
 
-  // Reset strength meter
+  updateAlgorithmSettings();
   updateStrengthMeter("");
 
-  announce("Cleared all fields and memory references");
+  // Reset all password inputs to password type
+  document.querySelectorAll('input[type="text"][data-was-password]').forEach((input) => {
+    input.type = "password";
+  });
+
+  announce("Cleared all fields and memory", "success");
 }
 
+// ── Theme Toggle ──────────────────────────────────────────────
 function initThemeToggle() {
-  // Default to system preference: 'system' radio is checked in HTML
   applyTheme(getSelectedRadioValue(refs.themeRadios, "system"));
 
   refs.themeRadios.forEach((r) => {
@@ -334,8 +460,8 @@ function applyTheme(value) {
   }
 }
 
+// ── Font Size ─────────────────────────────────────────────────
 function initFontSizeControls() {
-  // Default Medium is checked in HTML
   setFontScale(getSelectedRadioValue(refs.fontRadios, "medium"));
 
   refs.fontRadios.forEach((r) => {
@@ -346,43 +472,30 @@ function initFontSizeControls() {
 }
 
 function setFontScale(scale) {
-  const root = document.documentElement;
-  // small | medium | large
-  root.setAttribute("data-font", scale);
+  document.documentElement.setAttribute("data-font", scale);
 }
 
+// ── Advanced Settings ─────────────────────────────────────────
 function initAdvancedSettings() {
-  // Set initial values
   refs.advSaltLen.value = String(DEFAULTS.saltLength);
   refs.advIvLen.value = String(DEFAULTS.ivLength);
   refs.advIterations.value = String(DEFAULTS.iterations);
   refs.advKeyLen.value = String(DEFAULTS.keyLength);
-  if (refs.advAlgo) refs.advAlgo.value = "AES-256-CBC"; // Match CLI default
+  if (refs.advAlgo) refs.advAlgo.value = "AES-256-CBC";
 
   try {
-    // Enable all settings for encryption
     refs.advSaltLen.disabled = false;
     refs.advIvLen.disabled = false;
     refs.advIterations.disabled = false;
     refs.advKeyLen.disabled = false;
     if (refs.advAlgo) refs.advAlgo.disabled = false;
 
-    // Add algorithm change listener to update IV and key length
     refs.advAlgo.addEventListener("change", updateAlgorithmSettings);
-    
-    // Initial update based on selected algorithm
     updateAlgorithmSettings();
-
-    // Update helper texts
-    const ivHelp = document.getElementById("advIvHelp");
-    if (ivHelp) ivHelp.textContent = "AES-CBC requires 16-byte IV, AES-GCM requires 12-byte IV.";
-    const iterHelp = document.getElementById("advIterHelp");
-    if (iterHelp) iterHelp.textContent = "Default 100k. Higher is slower, more secure. Match CLI config for compatibility.";
   } catch {}
 }
 
 function readAdvancedSettings() {
-  // Read all settings from UI
   const saltLen = Number.parseInt(refs.advSaltLen.value ?? String(DEFAULTS.saltLength), 10);
   const ivLen = Number.parseInt(refs.advIvLen.value ?? String(DEFAULTS.ivLength), 10);
   const iterStr = refs.advIterations.value ?? String(DEFAULTS.iterations);
@@ -390,7 +503,6 @@ function readAdvancedSettings() {
   const keyLen = Number.parseInt(refs.advKeyLen.value ?? String(DEFAULTS.keyLength), 10);
   const algo = refs.advAlgo.value ?? "AES-256-CBC";
 
-  // Convert CLI algorithm names to Web Crypto names
   const webAlgo = algo.includes("GCM") ? "AES-GCM" : "AES-CBC";
 
   return {
@@ -399,22 +511,20 @@ function readAdvancedSettings() {
     iterations: Number.isFinite(iterNum) && iterNum > 0 ? iterNum : DEFAULTS.iterations,
     keyLength: Number.isFinite(keyLen) && keyLen > 0 ? keyLen : DEFAULTS.keyLength,
     algorithm: webAlgo,
-    cliAlgorithm: algo // Keep CLI algorithm name for reference
+    cliAlgorithm: algo,
   };
 }
 
 function validateAdvancedSettings(_vals) {
   const settings = readAdvancedSettings();
-  
+
   try {
-    // Validate salt length
     if (settings.saltLength < 16 || settings.saltLength > 64) {
       refs.advSaltLen.setAttribute("aria-invalid", "true");
       return { ok: false, settings, message: "Salt length must be between 16 and 64 bytes" };
     }
     refs.advSaltLen.removeAttribute("aria-invalid");
 
-    // Validate IV length based on algorithm
     const expectedIvLength = settings.algorithm === "AES-GCM" ? 12 : 16;
     if (settings.ivLength !== expectedIvLength) {
       refs.advIvLen.setAttribute("aria-invalid", "true");
@@ -422,14 +532,12 @@ function validateAdvancedSettings(_vals) {
     }
     refs.advIvLen.removeAttribute("aria-invalid");
 
-    // Validate iterations
     if (settings.iterations < 10000 || settings.iterations > 1000000) {
       refs.advIterations.setAttribute("aria-invalid", "true");
       return { ok: false, settings, message: "Iterations must be between 10,000 and 1,000,000" };
     }
     refs.advIterations.removeAttribute("aria-invalid");
 
-    // Validate key length
     const validKeyLengths = [16, 24, 32];
     if (!validKeyLengths.includes(settings.keyLength)) {
       refs.advKeyLen.setAttribute("aria-invalid", "true");
@@ -443,13 +551,14 @@ function validateAdvancedSettings(_vals) {
   }
 }
 
+// ── Settings Modal ────────────────────────────────────────────
 function initSettingsModal() {
   const modal = refs.settingsModal;
   const trigger = refs.settingsTrigger;
   const closeBtn = refs.settingsClose;
   if (!modal || !trigger || !closeBtn) return;
 
-  const container = modal.querySelector(".modal-content") || modal;
+  const container = modal.querySelector(".modal") || modal;
 
   const getFocusable = () => {
     return Array.from(
@@ -531,7 +640,6 @@ function initSettingsModal() {
     close();
   });
 
-  // Close when choosing an option inside modal
   modal.addEventListener("change", (e) => {
     if (e.target && (e.target.name === "theme" || e.target.name === "fontScale")) {
       close();
@@ -539,18 +647,17 @@ function initSettingsModal() {
   });
 }
 
+// ── Service Worker ────────────────────────────────────────────
 function registerServiceWorker() {
   if ("serviceWorker" in navigator) {
     const isSecure = location.protocol === "https:" || location.hostname === "localhost";
     if (isSecure) {
-      navigator.serviceWorker.register("sw.js").catch(() => {
-        // Non-fatal; offline still works without SW registration when using file://
-      });
+      navigator.serviceWorker.register("sw.js").catch(() => {});
     }
   }
 }
 
-// Helpers
+// ── Helpers ───────────────────────────────────────────────────
 function getSelectedRadioValue(radios, fallback) {
   const picked = radios.find((r) => r.checked);
   return picked ? picked.value : fallback;
@@ -561,41 +668,30 @@ function sanitizeInput(text) {
   return text.trim();
 }
 
-function announce(message) {
-  // Announce via footer notice for simplicity; avoids storing sensitive data
-  const notice = $(".notice");
-  if (notice) {
-    notice.textContent = message;
-  }
-}
-
 function updateAlgorithmSettings() {
   const algo = refs.advAlgo.value;
   const isGCM = algo.includes("GCM");
-  
-  // Update IV length based on algorithm
+
   const ivLength = isGCM ? 12 : 16;
   refs.advIvLen.value = String(ivLength);
   refs.advIvLen.setAttribute("min", String(ivLength));
   refs.advIvLen.setAttribute("max", String(ivLength));
   refs.advIvLen.setAttribute("step", "1");
-  
-  // Update key length based on algorithm
-  let keyLength = 32; // default to 256
+
+  let keyLength = 32;
   if (algo.includes("192")) keyLength = 24;
   else if (algo.includes("128")) keyLength = 16;
-  
+
   refs.advKeyLen.value = String(keyLength);
   refs.advKeyLen.setAttribute("min", String(keyLength));
   refs.advKeyLen.setAttribute("max", String(keyLength));
   refs.advKeyLen.setAttribute("step", "1");
-  
-  // Update helper text
+
   const ivHelp = document.getElementById("advIvHelp");
   if (ivHelp) {
     ivHelp.textContent = `${algo} requires ${ivLength}-byte IV.`;
   }
-  
+
   const keyHelp = document.getElementById("advKeyHelp");
   if (keyHelp) {
     const bits = keyLength * 8;
@@ -603,5 +699,5 @@ function updateAlgorithmSettings() {
   }
 }
 
-// Boot
+// ── Init ──────────────────────────────────────────────────────
 initUI();

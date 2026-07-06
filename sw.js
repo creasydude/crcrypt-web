@@ -2,7 +2,7 @@
 // Service Worker for CRCrypt Web.
 // Offline cache of static assets only. No user data is cached or persisted.
 
-const CACHE_VERSION = "v5";
+const CACHE_VERSION = "v6";
 const CACHE_NAME = `crcrypt-web-${CACHE_VERSION}`;
 const CORE_ASSETS = [
   "index.html",

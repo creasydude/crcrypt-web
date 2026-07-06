@@ -1,74 +1,170 @@
-# CRCrypt Web
+<div align="center">
 
-Offline, zero‑persistence AES‑256‑CBC (default) PWA with optional AES‑256‑GCM. This guide deploys the static site to Cloudflare Pages using Wrangler v3.
+# 🔐 CRCrypt
 
-Prerequisites
-- Cloudflare account with Pages enabled
-- Node.js 18+
-- Wrangler v3: npm i -g wrangler
+**Offline, zero-persistence AES-256 encryption/decryption in your browser.**
 
-Project structure
-- index.html
-- styles.css
-- manifest.webmanifest
-- sw.js
-- src/ui.js
-- src/crypto.js
-- src/utils/hex.js
-- _headers (security headers for Pages)
+Your data never leaves your device. No network calls. No storage. No traces.
 
-Security headers
-- CSP, COOP, etc. are defined via _headers and reinforced in index.html.
-- Service-Worker-Allowed: / for sw.js scope.
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![PWA Ready](https://img.shields.io/badge/PWA-Ready-5A0DC8.svg)](manifest.webmanifest)
+[![Cloudflare Pages](https://img.shields.io/badge/Deploy-Cloudflare%20Pages-F48120.svg)](#-deploy-to-cloudflare-pages)
+[![Zero Persistence](https://img.shields.io/badge/Data-Zero%20Persistence-brightgreen.svg)](#-zero-persistence-guarantee)
 
-Deploy steps
-1) Login: wrangler login
-2) Create the Pages project (one-time): wrangler pages project create crcrypt-web
-3) Publish the current directory: wrangler pages deploy . --project-name=crcrypt-web --branch=production
+</div>
 
+---
 
-Local development with Pages
-- Run dev server: wrangler pages dev .
-- Open https://localhost:8788 (default).
+## Features
 
-Notes on SW and caching
-- SW is registered from src/ui.js and will pre-cache static assets.
-- _headers sets no-cache for index.html, sw.js, manifest.webmanifest to ensure updates propagate.
-- Only static assets are cached; no runtime data is stored.
+- **AES-256-CBC** (default) and **AES-256-GCM** encryption
+- **PBKDF2-SHA256** key derivation with configurable iterations
+- **Offline-first** — works without internet after first load
+- **Zero persistence** — no localStorage, sessionStorage, or IndexedDB
+- **PWA** — installable as a standalone app
+- **Dark/Light theme** with system preference detection
+- **Responsive** — works on desktop, tablet, and mobile
+- **CLI compatible** — output format matches the CRCrypt CLI tool
 
-Zero‑persistence guarantee
-- No localStorage/sessionStorage/IndexedDB.
-- No network calls beyond serving static assets.
-- Clipboard only on explicit user action.
-- Memory zeroization of buffers after crypto operations.
+## Quick Start
 
-Compatibility with CLI
-- Output (AES‑256‑CBC default): hex salt:iv:ciphertext
-- Output (AES‑256‑GCM supported): hex salt:iv:ciphertext:tag
-- Defaults: AES‑256‑CBC, PBKDF2‑SHA256 100k iterations, salt 32 bytes, IV 16 bytes, key 32 bytes.
-- Adjust salt/iv/iterations/key via Advanced Settings.
+### Run Locally
 
-Updating the site
-- Edit files and re‑publish: wrangler pages publish . --project-name=crcrypt-web
-- SW changes may take a refresh+hard reload to take effect.
+```bash
+# Option 1: Python (no install needed)
+python3 -m http.server 8080
+# Open http://localhost:8080
 
-Custom domain (optional)
-- Attach your domain to the Pages project in Cloudflare dashboard.
-- HTTPS is automatic; SW works under HTTPS.
+# Option 2: Node.js
+npx serve .
+# Open http://localhost:3000
 
-Troubleshooting
-- If SW not registering, ensure HTTPS or localhost and Service-Worker-Allowed header on /sw.js.
-- If CSP blocks, verify _headers is present at project root and no external scripts/styles are used.
-- If pages publish fails, check wrangler login and project name.
+# Option 3: With Wrangler (Cloudflare Pages dev)
+npx wrangler pages dev .
+# Open http://localhost:8788
+```
 
-Commands (copy/paste)
-- npm i -g wrangler
-- wrangler login
-- wrangler pages project create crcrypt-web
-- wrangler pages dev .
-- wrangler pages publish . --project-name=crcrypt-web
+### Install Wrangler (optional)
 
-This repository is static; no build step required.
+```bash
+npm install -g wrangler
+```
 
-Security reminder
-- Keep your password secret; encryption is local and non‑recoverable without the correct password.
+## Deploy to Cloudflare Pages
+
+### One-time Setup
+
+```bash
+# Login to Cloudflare
+wrangler login
+
+# Create the Pages project
+wrangler pages project create crcrypt-web
+```
+
+### Deploy
+
+```bash
+# Deploy to production
+wrangler pages deploy . --project-name=crcrypt-web --branch=production
+
+# Deploy to preview
+wrangler pages deploy . --project-name=crcrypt-web --branch=preview
+```
+
+### Custom Domain
+
+1. Go to your Cloudflare Pages project dashboard
+2. Navigate to **Custom Domains**
+3. Add your domain and follow the DNS verification steps
+4. HTTPS is automatically provisioned
+
+## Project Structure
+
+```
+crcrypt-web/
+├── index.html              # App shell (single-page)
+├── styles.css              # Premium dark design system
+├── manifest.webmanifest    # PWA manifest
+├── sw.js                   # Service worker for offline
+├── _headers                # Security headers (CSP, COOP, etc.)
+├── _redirects              # Cloudflare Pages redirects
+└── src/
+    ├── ui.js               # UI logic and interactions
+    ├── crypto.js           # Web Crypto API operations
+    └── utils/
+        └── hex.js          # Hex encoding utilities
+```
+
+## How It Works
+
+### Encryption Flow
+
+1. **Key Derivation**: Password → PBKDF2-SHA256 → AES key (configurable iterations)
+2. **Encryption**: Plaintext + key → AES-CBC/GCM → Ciphertext
+3. **Output Format**: `hex(salt):hex(iv):hex(ciphertext)` (or `:hex(tag)` for GCM)
+
+### Decryption Flow
+
+1. **Parse**: Split input into salt, IV, ciphertext (and tag for GCM)
+2. **Auto-detect**: Algorithm inferred from format (3 parts = CBC, 4 parts = GCM)
+3. **Key Derivation**: Password + salt → PBKDF2 → AES key
+4. **Decrypt**: Ciphertext + key → Plaintext
+
+### Default Settings
+
+| Parameter | Default | Range |
+|-----------|---------|-------|
+| Algorithm | AES-256-CBC | AES-128/192/256-CBC/GCM |
+| PBKDF2 Iterations | 100,000 | 10,000–1,000,000 |
+| Salt Length | 32 bytes | 16–64 bytes |
+| IV Length | 16 bytes (CBC) / 12 bytes (GCM) | Fixed per algorithm |
+| Key Length | 32 bytes (256-bit) | 16/24/32 bytes |
+
+## CLI Compatibility
+
+Output from CRCrypt Web is compatible with the CRCrypt CLI tool:
+
+```bash
+# Encrypt with CLI
+echo "secret" | crcrypt encrypt -p "mypassword"
+
+# Decrypt in browser — paste the output and enter the same password
+```
+
+## Security
+
+- **No data persistence**: All encryption/decryption happens in memory only
+- **Web Crypto API**: Uses browser-native cryptographic operations
+- **PBKDF2**: Industry-standard key derivation with configurable work factor
+- **Zero network calls**: No analytics, no telemetry, no external requests
+- **CSP headers**: Strict Content-Security-Policy via `_headers`
+
+## Accessibility
+
+- WCAG AA contrast ratios
+- Keyboard navigation support
+- Screen reader compatible with ARIA labels
+- Respects `prefers-reduced-motion`
+- Focus visible states on all interactive elements
+
+## Browser Support
+
+| Browser | Status |
+|---------|--------|
+| Chrome 63+ | ✅ Full support |
+| Firefox 57+ | ✅ Full support |
+| Safari 11+ | ✅ Full support |
+| Edge 79+ | ✅ Full support |
+
+## License
+
+MIT — see [LICENSE](LICENSE) for details.
+
+---
+
+<div align="center">
+
+**Built with ❤️ for privacy-first encryption**
+
+</div>
